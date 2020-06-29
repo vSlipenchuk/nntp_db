@@ -1,0 +1,15 @@
+#include "vos.c"
+#include "std_sock.c"
+#include "sock.c"
+#include "vs0.c"
+#include "exe.c"
+#include "vss.c"
+#include "logger.c"
+#include "hexdump.c"
+#include "strutil.c"
+#include "coders.c"
+//#include "httpSrv.c"
+
+
+#include "vdb.c"
+//#include "vsqlite3.c"
