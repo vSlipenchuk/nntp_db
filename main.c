@@ -51,13 +51,14 @@ SocketSend(sock,body,-1);
 SocketSendf(sock,"\r\n.\r\n"); // Emd of it
 }*/
 
-int nntpdb_post_test(char *t) ;
+int nntpdb_post_test(char *t,char *set_grp) ;
 
 void nntpPost(Socket *sock,char *body) { // Check firsled & save
 printf("NEW POST {{%s}}\n",body);
-  nntpdb_post_test(body);
-  buf2file(body,strlen(body),"last_post.txt");
-SocketSendf(sock,"240 OK\r\n");
+int ok = nntpdb_post_test(body,0);
+  buf2file((uchar*)body,strlen(body),(uchar*)"last_post.txt");
+if (ok) SocketSendf(sock,"240 OK\r\n");
+   else SocketSendf(sock,"530 Fail\r\n");
 }
 
 
@@ -70,11 +71,19 @@ if (!nntpdb_init()) {
   return 0;
   }
 
-if (npar>1 && strcmp(par[1],"post")==0) {
-  // test post mode...
-  nntpdb_post_test(0);
-  exit(2);
+if (npar>1) {
+   char *cmd = par[1];
+   if (lcmp(&cmd,"port")) {
+      nntpdb_post_test(0,0);
+      exit(2);
+      }
+  else if (lcmp(&cmd,"cmd")) { // run console
+      nntpdb_console(cmd);
+      exit(1);
+      }
+  exit(1);
   }
+
 
 n = nntpSrvCreate("");
     printf("Hello world2 n=%p!\n",n);

@@ -21,11 +21,7 @@ int nntp_update_state(nn_grp *g) {
 int ok = db_selectf(db,"select min(n),max(n),count(*) from ng_art where ng=%d",g->n);
 if (!ok) {
   printf("Select ERR, trye recreate table ERR=%s..\n",db->error);
-  ok = db_exec_once(db,"create table ng_art(n integer not null primary key, ng integer,"
-    "subj varchar(200), frm varchar(200), body varchar(2000), created TIMESTAMP default CURRENT_TIMESTAMP)");
-  if (ok) printf("table created OK\n");
-    else printf("fail create table %s\n",db->error);
-   //exit(2);
+  nntpdb_create_tables();
    ok = db_selectf(db,"select min(n),max(n),count(*) from ng_art where ng=%d",g->n);
    if (!ok) {
       printf("Failed select anyway %s\n",db->error);
@@ -50,6 +46,15 @@ for(i=0;i<arrLength(grp);i++) nntp_update_state(grp+i);
 return 1;
 }
 
+int nntpdb_create_tables() {
+int ok = db_exec_once(db,"create table ng_grp(N integer,NAME varchar(80))") && db_commit(db);
+printf("ng_grp table created:%d status:%s\n",ok,db->error);
+ok = db_exec_once(db,"create table ng_art(n integer not null primary key, ng integer,"
+    "subj varchar(200), frm varchar(200), h varchar(2000),body varchar(2000), r integer, created TIMESTAMP default CURRENT_TIMESTAMP)");
+printf("ng_art table created:%d status:%s\n",ok,db->error);
+return 1;
+}
+
 
 
 int nntpdb_init() { // connect or create a new db
@@ -64,8 +69,7 @@ if (db_connect_string(db,"/@nntp.db")<=0) {
 // need reload groups from database?
 if ( db_select(db,"select N,NAME from ng_grp order by NAME")<=0) {
   printf("No groups table (%s), create new\n",db->error);
-  int ok = db_exec_once(db,"create table ng_grp(N integer,NAME varchar(80))") && db_commit(db);
-  if (!ok) printf("DBERR:%s\n",db->error);
+  nntpdb_create_tables();
   exit(1); // done
   }
 while (db_fetch(db) ) {
@@ -110,7 +114,7 @@ void nntpXover(Socket *sock,int n1,int n2) {
 nn_grp *g = sock->handle; // selected group
 if (g) {
   int ok = db_selectf(db,
-    "select n,subj,frm,created from ng_art where ng=%d and n between %d and %d",g->n,n1,n2);
+    "select n,subj,frm,created,r from ng_art where ng=%d and n between %d and %d",g->n,n1,n2);
   if (ok) while (db_fetch(db)) {
       int n = db_int(db->out.cols);
       char *subj = db_text(db->out.cols+1);
@@ -122,14 +126,20 @@ if (g) {
       char date[80];
       date[0]=0;
       dt_nntp(date, db_text(db->out.cols+3) );
-      //date[0]=0; // TMP?
+      int r = db_int(db->out.cols+4);
+      char Ref[80]; Ref[0]=0;
+      if (r>0) sprintf(Ref,"%d@%s",r,g->name); // references
 
+      //date[0]=0; // TMP?
+printf("REF={{%s}}\n",Ref);
      // subj="subj";
       //frm="frm"; strcpy(date,"6 Oct 2019 04:38:40 +0300");
       SocketSendf(sock,"%d\t%s\t%s\t%s\t%d@%s\t%s\t%d\t%d\r\n",n,subj,frm,date,n,g->name,
-          "",0,0); // references, bytes, lines
+          Ref,0,0); // references, bytes, lines
 
-      printf("SEND:%d\t%s\t%s\t%s\t%d@%s\r\n",n,subj,frm,date,n,g->name);
+        printf("XOVER_SEND: %d\t%s\t%s\t%s\t%d@%s\t%s\t%d\t%d\r\n",n,subj,frm,date,n,g->name,
+          Ref,0,0); // references, bytes, lines
+      //printf("SEND:%d\t%s\t%s\t%s\t%d@%s\r\n",n,subj,frm,date,n,g->name);
       }
 
   }
@@ -151,13 +161,16 @@ if (!g) return ; // failed found
 // autogenerate....
 char *ng=g->name;
 int n=-1; sscanf(id,"%d",&n); //
-int ok = db_selectf(db,"select frm,subj,h,body,created from ng_art where ng=%d and n=%d",g->n,n);
+int ok = db_selectf(db,"select frm,subj,h,body,created,r from ng_art where ng=%d and n=%d",g->n,n);
 if (ok && db_fetch(db )) {
 char msgId[80]; sprintf(msgId,"<%d@%s>",n,ng);
 char *frm = db_text(db->out.cols);
 char *subj=db_text(db->out.cols+1);
 char *heads =  db_text(db->out.cols+2);
 char *body = db_text(db->out.cols+3);
+int r = db_int(db->out.cols+4);
+char Ref[200]; Ref[0]=0;
+//if (r>0) sprintf(Ref,"References: <%d@%s>\r\n",r,g->name);
 //char *date = db_text(db->out.cols+4);
     char date[80];
       dt_nntp(date, db_text(db->out.cols+4) );
@@ -167,8 +180,8 @@ char *body = db_text(db->out.cols+3);
   //char *date="8 Oct 2019 04:38:40 +0300";
 //char body[200]; sprintf(body,"That a body of %d message",n);
 SocketSendf(sock,"220\r\n");
-SocketSendf(sock,"%s%sSubject: %s\r\nMessage-Id: %s\r\nFrom: %s\r\nDate: %s\r\nNewsgroups: %s\r\n\r\n",
-  heads,(heads[0]?"\r\n":""),subj,msgId,frm,date,ng);
+SocketSendf(sock,"%s%s%sSubject: %s\r\nMessage-Id: %s\r\nFrom: %s\r\nDate: %s\r\nNewsgroups: %s\r\n\r\n",
+  heads,(heads[0]?"\r\n":""),Ref,subj,msgId,frm,date,ng);
 SocketSend(sock,body,-1);
 SocketSendf(sock,"\r\n.\r\n"); // Emd of it
 }
@@ -187,16 +200,17 @@ memcpy(buf,f.data,f.len);
 return 1;
 }
 
-int nntpdb_add_post(int g,char *f,char *s,char *h,char *b) {
+int nntpdb_add_post(int g,char *f,char *s,char *h,char *b,int r) {
 int n = 1;
 if (db_select(db,"select max(n) from ng_art") && db_fetch(db)) n = db_int(db->out.cols)+1;
-int ok = db_compile(db,"insert into ng_art(n,ng,subj,frm,h,body) values(:n,:g,:s,:f,:h,:b)")
+int ok = db_compile(db,"insert into ng_art(n,ng,subj,frm,h,body,r) values(:n,:g,:s,:f,:h,:b,:r)")
    && db_bind(db,"n",dbInt, 0, &n, 0)
    && db_bind(db,"g",dbInt, 0, &g, 0)
    && db_bind(db,"f",dbChar, 0, f, strlen(f))
    && db_bind(db,"s",dbChar, 0, s, strlen(s))
    && db_bind(db,"h", dbChar, 0, h, strlen(h))
    && db_bind(db,"b", dbChar, 0, b, strlen(b))
+   && db_bind(db,"r",dbInt, 0, &r, 0)
    && db_exec(db);
 db_commit(db);
 if (ok) {
@@ -208,7 +222,7 @@ return n;
 }
 
 // make a new post here
-int nntpdb_post_test(char *t) {
+int nntpdb_post_test(char *t,char *set_grp) {
 if (!t) t = (char*)strLoad((uchar*)"post.txt"); // last report
 char heads[512];
 printf("Try insert = {{%s}}\n",t);
@@ -220,11 +234,15 @@ if (b) {*b=0; b+=4;} else
   }
 printf("Heads:{{%s}} Body:{{%s}}\n",t,b);
 
-char ng_name[256], subj[256],frm[256],Dat[256];
+char ng_name[256], subj[256],frm[256],Dat[256],Ref[80];
 get_mime_field(t,"Newsgroups",ng_name,sizeof(ng_name));
 get_mime_field(t,"Subject",subj,sizeof(subj));
 get_mime_field(t,"From",frm,sizeof(frm));
 get_mime_field(t,"Date",Dat,sizeof(Dat));
+//get_mime_field(t,"References",Ref,sizeof(Ref));
+get_mime_field(t,"In-Reply-To",Ref,sizeof(Ref));
+
+int ref = 0; if (Ref[0]=='<') sscanf(Ref+1,"%d",&ref);
 heads[0]=0;
 char buf[200];
 if (get_mime_field(t,"MIME-Version",buf,sizeof(buf))) {
@@ -237,6 +255,36 @@ if (get_mime_field(t,"Content-Transfer-Encoding",buf,sizeof(buf))) {
    strcat(heads,"Content-Transfer-Encoding"); strcat(heads,": "); strcat(heads,buf); strcat(heads,"\r\n");
    }
 printf("NG=%s, SUBJ=%s From=%s Date=%s Heads={{%s}}\n",ng_name,subj,frm,Dat,heads);
-  nntpdb_add_post(1,frm,subj,heads,b); //int g,char *f,char *s,char *h,char *b) {
+if (!set_grp)  set_grp = ng_name;
+nn_grp * g = nntp_grpByName(set_grp);
+if (!g) {
+   printf("Cant find group <%s>\n",set_grp);
+   return 0;
+   }
+nntpdb_add_post(g->n,safe(frm),safe(subj),heads,b,ref); //int g,char *f,char *s,char *h,char *b) {
 return 1;
+}
+
+int db_next_n(database *db,char *tbl) {
+if (db_selectf(db,"select max(n) from %s",tbl)<=0) return -1;
+if (db_fetch(db)<=0) return 1;
+return db_int(db->out.cols)+1;
+}
+
+int nntpdb_addgrp(char *name) {
+int n = db_next_n(db,"ng_grp");
+if (db_execf(db,"insert into ng_grp(n,name) values(%d,'%s')",n,name))
+   printf("OK, added n=%d\n",n);
+   else printf("failed with code %s\n",db->error);
+db_commit(db);
+return 0;
+}
+
+int nntpdb_console(char *cmd) {
+printf("run console command: %s\n",cmd);
+if (lcmp(&cmd,"addgrp")) {
+   printf("add group %s\n",cmd);
+   nntpdb_addgrp(cmd);
+   }
+return 0;
 }

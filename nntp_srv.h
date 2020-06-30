@@ -5,6 +5,11 @@
 #include "strutil.h"
 #include "vdb.h"
 
+enum {
+   cmdLine = 0, // expect line command \r\n
+   cmdBody =1   // expect body command .
+   };
+
 typedef struct _nn_grp {
     int n;
     char name[200];
@@ -56,6 +61,10 @@ int nntpSrvProcess(nntpSrv *srv);
 // database
 int nntpdb_init() ;
 nn_grp *nntp_grpByName(char *name); // find by name
+
+//
+int nntpdb_create_tables();
+int nntpdb_console(char *cmd);
 
 
 #endif //NNTPSRV_H

@@ -52,13 +52,13 @@ return (p-data)+2; // line with crlf
 }
 
 
-int flag = 0; // ML -- ZU - move inswde socket
+//int flag = 0; // ML -- ZU - move inswde socket
 
 int onNttpClientPacket(char *data,int len, Socket *sock) { // CHeck - if packet ready???
 //hexdump("check_data",(char*)data,len);
 //vssHttp req;
 
-if (flag) len = nntpReadyML(data); // Wait multiline
+if (sock->lineMode == cmdBody) len = nntpReadyML(data); // Wait multiline
    else  len = nntpReady((char*)data);
 if (len<=0) return len; // Process protocol error or not ready
 
@@ -69,10 +69,10 @@ CLOG(srv,6,"new nttpRequest#%d/%d requestBody '%s'\n",sock->N,sock->recvNo,data)
 data[len-2]=0;
 printf("Process:<%s>\n",data);
 
-if (flag) { // wait nultiline
+if (sock->lineMode == cmdBody) { // wait nultiline
   data[len-5]=0;
   srv->onPost(sock,data);
-  flag = 0; // clear multiline
+  sock->lineMode = cmdLine; // clear multiline
   return len;
   }
 if (lcmp(&data,"QUIT") || lcmp(&data,"exit")) {
@@ -83,7 +83,7 @@ if (lcmp(&data,"QUIT") || lcmp(&data,"exit")) {
   }
 else if (lcmp(&data,"POST")) { // got multiline resp
   SocketSendf(sock,"340 input article\r\n");
-  flag=1;
+  sock->lineMode = cmdBody;
   }
 else if (lcmp(&data,"MODE")) { // mode reader -> hardcode 200 OKK
   SocketSendf(sock,"220 OK\r\n");
@@ -122,6 +122,7 @@ if (!sock) { // can be if wrong parameters or no pem.file
    }
 CLOG(srv,3,"new connect#%d from '%s', accepted\n",sock->N,sock->szip);
 sock->checkPacket = onNttpClientPacket; // When new packet here...
+sock->lineMode = cmdLine;
 SocketSendf(sock,"220 nntp ready\r\n",-1);
 if (srv->readLimit.Limit) sock->readPacket = &srv->readLimit; // SetLimiter here (if any?)
 return 1; // Everything is done...
