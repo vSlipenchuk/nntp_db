@@ -51,6 +51,8 @@ typedef struct _nntpSrv {
 
     database *db; // sqlite db
 
+    int (*onAuth)(Socket *sock,char *user,char *pass); // Must update sokc->auth on OK
+
     } nntpSrv;
 
 

@@ -53,6 +53,7 @@ return (p-data)+2; // line with crlf
 
 
 //int flag = 0; // ML -- ZU - move inswde socket
+int aflag = 0; // auth flag
 
 int onNttpClientPacket(char *data,int len, Socket *sock) { // CHeck - if packet ready???
 //hexdump("check_data",(char*)data,len);
@@ -75,6 +76,33 @@ if (sock->lineMode == cmdBody) { // wait nultiline
   sock->lineMode = cmdLine; // clear multiline
   return len;
   }
+
+if (srv->onAuth) { // Check authorization
+if (lcmp(&data,"AUTHINFO")) {
+  if (lcmp(&data,"user")) {
+     printf("AUTH: user=%s\n",data);
+     strNcpy(sock->name,data);
+     SocketSendf(sock,"381 pass need\r\n");
+     }
+  else if (lcmp(&data,"pass")) {
+     printf("AUTH: pass=%s\n",data);
+     int ok = srv->onAuth(sock,sock->name,data);
+     if (ok) SocketSendf(sock,"281 ok\r\n");
+       else SocketSendf(sock,"481 err\r\n");
+     }
+  else {
+     printf("AUTH-WRONG: cmd=%s\n",data);
+     SocketSendf(sock,"550\r\n");
+     }
+  return len;
+  }
+if (!sock->auth) {
+    printf("NO AUTH Auth cmd=%s\n",data);
+    SocketSendf(sock,"450 auth required\r\n");
+    return len;
+    }
+}
+
 if (lcmp(&data,"QUIT") || lcmp(&data,"exit")) {
   SocketSendf(sock,"250 goodbay\r\n");
   sock->dieOnSend=1;

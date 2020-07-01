@@ -61,6 +61,19 @@ if (ok) SocketSendf(sock,"240 OK\r\n");
    else SocketSendf(sock,"530 Fail\r\n");
 }
 
+char *szUserPass=0;
+
+int nntpAuth(Socket *sock,char *user,char *pass) {
+char buf[80];
+snprintf(buf,sizeof(buf),"%s:%s",user,pass);
+printf("Auth here :%s",buf);
+if (szUserPass && strcmp(szUserPass,buf)==0) {
+   printf("OK!\n");
+   sock->auth = sock; // any not NULL
+  return 1;
+  }
+return 0;
+}
 
 
 int main(int npar,char **par) {
@@ -81,7 +94,9 @@ if (npar>1) {
       nntpdb_console(cmd);
       exit(1);
       }
-  exit(1);
+  else if (lcmp(&cmd,"-auth:")) {
+    szUserPass=cmd; // copy Auth Data
+    }
   }
 
 
@@ -93,6 +108,7 @@ n = nntpSrvCreate("");
     n->xover = nntpXover;
     n->article = nntpArticle;
     n->onPost = nntpPost;
+    if (szUserPass) n->onAuth = nntpAuth;
     nntpSrvListen(n, 119);
     printf("Listened!\n");
 nntpSrvProcess(n);
